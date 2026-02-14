@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1771022130725,
+      "tag": "0000_numerous_jocasta",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1771022251606,
+      "tag": "0001_vengeful_goliath",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1771028740957,
+      "tag": "0002_fearless_vulcan",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1771030271800,
+      "tag": "0003_wise_blue_marvel",
+      "breakpoints": true
+    }
+  ]
+}
