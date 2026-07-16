@@ -84,7 +84,6 @@ jobs:
   dependency-observability:
     name: OSV Dependency Observability
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -102,4 +101,19 @@ jobs:
           chmod +x osv-scanner_linux_amd64
 
       - name: Report known dependency vulnerabilities
-        run: ./osv-scanner_linux_amd64 scan source --lockfile pnpm-lock.yaml --format table
+        run: |
+          set +e
+          ./osv-scanner_linux_amd64 scan source --lockfile pnpm-lock.yaml --format table
+          status=$?
+          if [[ "$status" -ne 0 ]]; then
+            echo "::warning title=OSV dependency debt detected::The deprecated repository contains known dependency vulnerabilities. See this step for the full report; remediation remains tracked separately from the credential-containment PR."
+            {
+              echo "### OSV dependency observability"
+              echo
+              echo "Known dependency vulnerabilities were detected (scanner exit code \`$status\`)."
+              echo "This report is intentionally non-blocking so the server-side credential containment can merge; it does not mark dependency remediation complete."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No known dependency vulnerabilities detected." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
