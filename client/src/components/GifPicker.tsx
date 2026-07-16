@@ -1,11 +1,11 @@
 /**
- * GifPicker — Tenor GIF search & browse component
- * Uses the Tenor v2 public API (free tier, no key required for limited usage)
- * Falls back to a curated set of popular GIF categories
+ * Authenticated Tenor GIF search. Provider credentials and upstream URLs stay
+ * on the server; this component only calls the RusingAcademy tRPC proxy.
  */
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, Loader2, TrendingUp, Smile } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Search, Smile, TrendingUp, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { trpc } from "@/lib/trpc";
 
 interface GifPickerProps {
   isOpen: boolean;
@@ -24,15 +24,6 @@ interface TenorGif {
   };
 }
 
-interface TenorResponse {
-  results: TenorGif[];
-  next: string;
-}
-
-// Tenor v2 API key (free public key for limited usage)
-const TENOR_API_KEY = "AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ";
-const TENOR_BASE = "https://tenor.googleapis.com/v2";
-
 const CATEGORIES = [
   { label: "Trending", emoji: "🔥", query: "" },
   { label: "Reactions", emoji: "😂", query: "reaction" },
@@ -44,110 +35,99 @@ const CATEGORIES = [
   { label: "Study", emoji: "📚", query: "studying" },
   { label: "Thank You", emoji: "🙏", query: "thank you" },
   { label: "Hello", emoji: "👋", query: "hello wave" },
-];
+] as const;
 
-async function fetchGifs(
-  query: string,
-  limit: number = 20,
-  pos?: string
-): Promise<TenorResponse> {
-  const endpoint = query ? "search" : "featured";
-  const params = new URLSearchParams({
-    key: TENOR_API_KEY,
-    client_key: "rusingacademy_community",
-    limit: String(limit),
-    media_filter: "gif,tinygif,mediumgif",
-    contentfilter: "medium",
-  });
-  if (query) params.set("q", query);
-  if (pos) params.set("pos", pos);
-
-  const res = await fetch(`${TENOR_BASE}/${endpoint}?${params}`);
-  if (!res.ok) throw new Error("Failed to fetch GIFs");
-  return res.json();
-}
-
-export default function GifPicker({ isOpen, onClose, onSelect }: GifPickerProps) {
+export default function GifPicker({
+  isOpen,
+  onClose,
+  onSelect,
+}: GifPickerProps) {
   const [query, setQuery] = useState("");
   const [gifs, setGifs] = useState<TenorGif[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextPos, setNextPos] = useState<string | undefined>();
-  const [activeCategory, setActiveCategory] = useState<string>("");
+  const [activeCategory, setActiveCategory] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  const gifSearch = trpc.gif.search.useMutation();
 
-  // Load GIFs on open or category/query change
-  const loadGifs = useCallback(async (searchQuery: string, append = false) => {
+  async function loadGifs(searchQuery: string, append = false, pos?: string) {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchGifs(searchQuery, 20, append ? nextPos : undefined);
-      setGifs((prev) => (append ? [...prev, ...data.results] : data.results));
-      setNextPos(data.next);
+      const data = await gifSearch.mutateAsync({
+        query: searchQuery,
+        limit: 20,
+        pos,
+      });
+      setGifs(previous =>
+        append ? [...previous, ...data.results] : data.results
+      );
+      setNextPos(data.next || undefined);
     } catch {
       setError("Failed to load GIFs. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [nextPos]);
+  }
 
   useEffect(() => {
     if (isOpen) {
-      loadGifs(activeCategory);
+      void loadGifs(activeCategory);
       setTimeout(() => searchInputRef.current?.focus(), 100);
     } else {
       setGifs([]);
       setQuery("");
       setActiveCategory("");
+      setNextPos(undefined);
+      setError(null);
     }
+    // Opening is the only automatic trigger; searches and categories are explicit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // Debounced search
   useEffect(() => {
     if (!isOpen) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       if (query.trim()) {
         setActiveCategory("");
-        loadGifs(query.trim());
+        void loadGifs(query.trim());
       }
     }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+    // Query changes intentionally drive the debounced request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, isOpen]);
 
-  const handleCategoryClick = (cat: typeof CATEGORIES[0]) => {
+  function handleCategoryClick(category: (typeof CATEGORIES)[number]) {
     setQuery("");
-    setActiveCategory(cat.query);
-    loadGifs(cat.query);
-  };
+    setActiveCategory(category.query);
+    void loadGifs(category.query);
+  }
 
-  const handleLoadMore = () => {
-    if (nextPos && !loading) {
-      loadGifs(query.trim() || activeCategory, true);
-    }
-  };
-
-  const getGifUrl = (gif: TenorGif): string => {
+  function getGifUrl(gif: TenorGif) {
     return (
       gif.media_formats.mediumgif?.url ||
       gif.media_formats.gif?.url ||
       gif.media_formats.tinygif?.url ||
       ""
     );
-  };
+  }
 
-  const getPreviewUrl = (gif: TenorGif): string => {
+  function getPreviewUrl(gif: TenorGif) {
     return (
       gif.media_formats.tinygif?.url ||
       gif.media_formats.nanogif?.url ||
       gif.media_formats.mediumgif?.url ||
       ""
     );
-  };
+  }
 
   return (
     <AnimatePresence>
@@ -159,42 +139,48 @@ export default function GifPicker({ isOpen, onClose, onSelect }: GifPickerProps)
           transition={{ duration: 0.2 }}
           className="absolute bottom-full left-0 mb-2 w-[360px] max-w-[calc(100vw-2rem)] bg-card rounded-2xl shadow-2xl border border-border z-50 overflow-hidden"
           style={{
-            boxShadow: "0 12px 40px rgba(15, 10, 60, 0.12), 0 4px 12px rgba(15, 10, 60, 0.06)",
+            boxShadow:
+              "0 12px 40px rgba(15, 10, 60, 0.12), 0 4px 12px rgba(15, 10, 60, 0.06)",
           }}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Smile className="w-4 h-4 text-[#D4AF37]" />
-              <span className="text-sm font-bold text-foreground">GIF Picker</span>
+              <span className="text-sm font-bold text-foreground">
+                GIF Picker
+              </span>
             </div>
             <button
+              type="button"
               onClick={onClose}
               className="p-1 rounded-lg hover:bg-accent transition-colors"
+              aria-label="Close GIF picker"
             >
               <X className="w-4 h-4 text-muted-foreground" />
             </button>
           </div>
 
-          {/* Search */}
           <div className="px-3 py-2">
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-muted/30">
               <Search className="w-4 h-4 text-muted-foreground shrink-0" />
               <input
                 ref={searchInputRef}
-                type="text"
+                type="search"
                 placeholder="Search GIFs..."
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={event => setQuery(event.target.value)}
                 className="bg-transparent text-sm outline-none w-full placeholder:text-muted-foreground/60"
+                aria-label="Search GIFs"
               />
               {query && (
                 <button
+                  type="button"
                   onClick={() => {
                     setQuery("");
-                    loadGifs(activeCategory);
+                    void loadGifs(activeCategory);
                   }}
                   className="text-muted-foreground hover:text-foreground"
+                  aria-label="Clear GIF search"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -202,42 +188,48 @@ export default function GifPicker({ isOpen, onClose, onSelect }: GifPickerProps)
             </div>
           </div>
 
-          {/* Categories */}
           {!query && (
             <div className="flex gap-1 px-3 pb-2 overflow-x-auto scrollbar-hide">
-              {CATEGORIES.map((cat) => (
+              {CATEGORIES.map(category => (
                 <button
-                  key={cat.label}
-                  onClick={() => handleCategoryClick(cat)}
+                  type="button"
+                  key={category.label}
+                  onClick={() => handleCategoryClick(category)}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                    activeCategory === cat.query
+                    activeCategory === category.query
                       ? "bg-[#1B1464] text-white"
                       : "bg-muted/50 text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  <span>{cat.emoji}</span>
-                  <span>{cat.label}</span>
+                  <span aria-hidden="true">{category.emoji}</span>
+                  <span>{category.label}</span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* GIF Grid */}
           <div
-            ref={scrollRef}
             className="h-[280px] overflow-y-auto px-3 pb-3"
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              if (el.scrollTop + el.clientHeight >= el.scrollHeight - 50) {
-                handleLoadMore();
+            onScroll={event => {
+              const element = event.currentTarget;
+              if (
+                nextPos &&
+                !loading &&
+                element.scrollTop + element.clientHeight >=
+                  element.scrollHeight - 50
+              ) {
+                void loadGifs(query.trim() || activeCategory, true, nextPos);
               }
             }}
           >
             {error ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
-                <p className="text-sm text-red-500">{error}</p>
+                <p className="text-sm text-red-500" role="alert">
+                  {error}
+                </p>
                 <button
-                  onClick={() => loadGifs(query.trim() || activeCategory)}
+                  type="button"
+                  onClick={() => void loadGifs(query.trim() || activeCategory)}
                   className="mt-2 text-xs text-[#1B1464] font-semibold hover:underline"
                 >
                   Try again
@@ -252,35 +244,43 @@ export default function GifPicker({ isOpen, onClose, onSelect }: GifPickerProps)
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                {gifs.map((gif) => (
-                  <button
-                    key={gif.id}
-                    onClick={() => {
-                      onSelect(getGifUrl(gif));
-                      onClose();
-                    }}
-                    className="relative rounded-xl overflow-hidden bg-muted/30 hover:ring-2 hover:ring-[#D4AF37] transition-all group aspect-video"
-                  >
-                    <img
-                      src={getPreviewUrl(gif)}
-                      alt={gif.title || "GIF"}
-                      className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                      loading="lazy"
-                    />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                  </button>
-                ))}
+                {gifs.map(gif => {
+                  const gifUrl = getGifUrl(gif);
+                  return (
+                    <button
+                      type="button"
+                      key={gif.id}
+                      onClick={() => {
+                        if (gifUrl) onSelect(gifUrl);
+                        onClose();
+                      }}
+                      className="relative rounded-xl overflow-hidden bg-muted/30 hover:ring-2 hover:ring-[#D4AF37] transition-all group aspect-video"
+                      aria-label={`Select ${gif.title || "GIF"}`}
+                      disabled={!gifUrl}
+                    >
+                      <img
+                        src={getPreviewUrl(gif)}
+                        alt={gif.title || "GIF"}
+                        className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                    </button>
+                  );
+                })}
               </div>
             )}
 
             {loading && (
-              <div className="flex justify-center py-4">
+              <div
+                className="flex justify-center py-4"
+                aria-label="Loading GIFs"
+              >
                 <Loader2 className="w-5 h-5 animate-spin text-[#1B1464]" />
               </div>
             )}
           </div>
 
-          {/* Tenor attribution */}
           <div className="px-3 py-2 border-t border-border flex items-center justify-center">
             <span className="text-[10px] text-muted-foreground/60 font-medium">
               Powered by Tenor

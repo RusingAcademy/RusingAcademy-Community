@@ -1,0 +1,4 @@
+title = "RusingAcademy Community secret scanning"
+
+[extend]
+useDefault = true

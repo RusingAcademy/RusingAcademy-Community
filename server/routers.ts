@@ -14,6 +14,7 @@ import { searchRouter } from "./routers/search";
 import { pollsRouter } from "./routers/polls";
 import { moderationRouter } from "./routers/moderation";
 import { analyticsRouter } from "./routers/analytics";
+import { gifRouter } from "./routers/gif";
 
 // Sprint 11-20 routers
 import { membershipRouter } from "./routers/membership";
@@ -55,6 +56,7 @@ export const appRouter = router({
   polls: pollsRouter,
   moderation: moderationRouter,
   analytics: analyticsRouter,
+  gif: gifRouter,
 
   // Feature routers (Sprint 11-20)
   membership: membershipRouter,
